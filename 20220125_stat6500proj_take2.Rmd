@@ -1,0 +1,268 @@
+---
+title: "Take 2"
+author: "Kyoko"
+date: "1/25/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+**Here I have all of the TCGA methylation data downloaded already**
+**Need to download the Clinical data, clean it up, merge it (if necessary)**
+
+
+```{r}
+library(TCGAbiolinks)
+```
+
+
+# Try pulling down TCGA clinical data
+
+```{r}
+query <- GDCquery(project = "TCGA-HNSC", 
+                  data.category = "Clinical",
+                  data.type = "Clinical Supplement", 
+                  data.format = "BCR Biotab")
+GDCdownload(query)
+clinical.BCRtab.all <- GDCprepare(query)
+names(clinical.BCRtab.all)
+```
+
+
+```{r}
+View(clinical.BCRtab.all$clinical_nte_hnsc)
+View(clinical.BCRtab.all$clinical_patient_hnsc)
+View(clinical.BCRtab.all$clinical_follow_up_v1.0_hnsc)
+View(clinical.BCRtab.all$clinical_drug_hnsc)
+View(clinical.BCRtab.all$clinical_radiation_hnsc)
+View(clinical.BCRtab.all$clinical_omf_v4.0_hnsc)
+```
+
+Appears to be 461 samples
+^Apparently the methylation dataset is n=580 so that needs to be subset already to 461.
+
+Maybe combine the 4:
+patient_hnsc
+follow-up4.8 (n=461); unique rows is 346; if multiple follow ups, take the last follow up date?
+drug(n=355)
+radiation(n=469)
+
+pharmaceutical_therapy_drug_name is kinda tricky to parse because the same drug can be coded differently
+but "chemotherapy" column has less number of levels so may be easier to start with
+
+
+
+
+Drop the first two rows of all the tables
+```{r}
+
+functdropfirsttwo<-function(x){
+  y<-x[-c(1:2),]
+  return (y)
+}
+
+clinical.BCRtab.all2<-lapply(clinical.BCRtab.all, functdropfirsttwo)
+
+```
+
+Change all of the stuff in brackets [Not Available] etc to NA
+```{r}
+# Not available, not applicable, unknown, not evaluated are all stored within [] and turned into NA
+turntoNA <- function(x) {
+  a <- grep("\\[", x)
+  vec <- rep(TRUE, length(x))
+  vec[a] <- NA
+  x <- x[vec]
+  return(x)
+}
+```
+
+```{r}
+clinical.BCRtab.all2$clinical_follow_up_v4.8_hnsc<-apply(clinical.BCRtab.all2$clinical_follow_up_v4.8_hnsc, 2,
+                                                         function(x) turntoNA(x))  %>% as.data.frame()
+clinical.BCRtab.all2$clinical_radiation_hnsc<-apply(clinical.BCRtab.all2$clinical_radiation_hnsc, 2, 
+                                                    function(x) turntoNA(x))  %>% as.data.frame()
+clinical.BCRtab.all2$clinical_patient_hnsc<-apply(clinical.BCRtab.all2$clinical_patient_hnsc, 2, 
+                                                  function(x) turntoNA(x))  %>% as.data.frame()
+clinical.BCRtab.all2$clinical_drug_hnsc<-apply(clinical.BCRtab.all2$clinical_drug_hnsc, 2, 
+                                               function(x) turntoNA(x))  %>% as.data.frame()
+```
+
+Add prefix to beginning of names to make the source identifiable:
+colnames(df) <-paste("2FactorData",colnames(df),sep="-")
+
+```{r}
+colnames(clinical.BCRtab.all2$clinical_follow_up_v4.8_hnsc) <-
+  paste("fu48",colnames(clinical.BCRtab.all2$clinical_follow_up_v4.8_hnsc),sep="-")
+colnames(clinical.BCRtab.all2$clinical_radiation_hnsc) <-
+  paste("rad",colnames(clinical.BCRtab.all2$clinical_radiation_hnsc),sep="-")
+colnames(clinical.BCRtab.all2$clinical_patient_hnsc) <-
+  paste("patient",colnames(clinical.BCRtab.all2$clinical_patient_hnsc),sep="-")
+colnames(clinical.BCRtab.all2$clinical_drug_hnsc) <-
+  paste("drug",colnames(clinical.BCRtab.all2$clinical_drug_hnsc),sep="-")
+```
+
+
+Trying to make each one unique to the "bcr_patient_barcode"
+```{r}
+patient<-clinical.BCRtab.all2$clinical_patient_hnsc
+rad<-clinical.BCRtab.all2$clinical_radiation_hnsc
+drug<-clinical.BCRtab.all2$clinical_drug_hnsc
+fu48<-clinical.BCRtab.all2$clinical_follow_up_v4.8_hnsc
+```
+
+
+```{r}
+length(unique(patient$`patient-bcr_patient_uuid`))
+length(unique(rad$`rad-bcr_patient_uuid`))
+length(unique(drug$`drug-bcr_patient_uuid`))
+length(unique(fu48$`fu48-bcr_patient_uuid`))
+```
+
+rad (314), drug(186), and fu48(344) need to have unique IDs per row
+
+Radiation for primary tumor field prioritized over other regions:
+```{r}
+# Extract rad therapy best response (relevant column)
+
+rad2<-rad[,c("rad-bcr_patient_barcode","rad-treatment_best_response","rad-radiation_therapy_site")]
+
+rad3<-distinct(rad2)
+
+rad3$`rad-radiation_therapy_site` %>% table()
+
+rad4<-rad3[which(rad3$`rad-radiation_therapy_site`=="Primary Tumor Field"),]
+
+unique(rad4$`rad-bcr_patient_barcode`) %>% length()
+
+
+radfinal<-rad4
+```
+
+```{r}
+rad[rad$`rad-bcr_patient_barcode`=='TCGA-CN-A498',]
+```
+
+drug reduce to 186 or fewer
+```{r}
+drug2<-drug[,c("drug-bcr_patient_barcode","drug-pharmaceutical_therapy_type")] %>%distinct() 
+
+drug2$chemoyes<-ifelse(drug2$`drug-pharmaceutical_therapy_type` =="Chemotherapy", "Y", NA)
+
+drug3<-drug2[,c(1,3)] %>% drop_na() %>% distinct()
+
+drug3$`drug-bcr_patient_barcode` %>% length()
+
+drugfinal<-drug3
+```
+
+fu48
+reduce to 344
+
+prioritize columns 
+
+fu48-bcr_patient_barcode
+"fu48-form_completion_date"
+fu48-vital_status
+fu48-death_days_to
+fu48-tumor_status
+fu48-treatment_outcome_first_course
+fu48-tobacco_smokeless_use_at_dx
+
+```{r}
+which(is.na(fu48$`fu48-treatment_outcome_first_course`))
+
+test<-fu48[which(is.na(fu48$`fu48-treatment_outcome_first_course`)),c("fu48-bcr_patient_barcode","fu48-form_completion_date","fu48-treatment_outcome_first_course")]
+
+interestedincols<-c("fu48-bcr_patient_barcode",
+"fu48-form_completion_date",
+"fu48-vital_status",
+"fu48-death_days_to",
+"fu48-tumor_status",
+"fu48-treatment_outcome_first_course",
+"fu48-tobacco_smokeless_use_at_dx")
+
+fu48_2<-fu48[,interestedincols] %>% distinct()
+
+```
+
+
+We could split this table into "prioritized last followup date" using date on "fu48-form_completion_date" and "prioritized first followup date" to get unique patient IDs:
+
+# try left join instead of merge
+x<-pt %>% left_join (fu, by="bcr_patient_barcode") %>% left_join(drug3, by="bcr_patient_barcode")
+x$birthday<-as.Date(x$form_completion_date)+as.numeric(x$birth_days_to)
+x$form_completion_date<-as.Date(x$form_completion_date)
+x$form_completion_date_fu<-as.Date(x$form_completion_date_fu)
+x$age=as.period(interval(start = x$birthday, end = x$form_completion_date))@year
+x$age_fu=as.period(interval(start = x$birthday, end = x$form_completion_date_fu))@year
+
+elapsed.time<-x$form_completion_date %--% x$form_completion_date_fu
+x$years_til_fu<-as.duration(elapsed.time)/dyears(1)
+x$months_til_fu<-as.duration(elapsed.time)/dmonths(1)
+x$days_til_fu<-as.duration(elapsed.time)/ddays(1)
+
+# drop values where the form_completion_date and form_completion_date_fu are the same
+# or form_completion_date_fu is earlier than form_completion_date
+x2<-x%>%filter(years_til_fu>0)
+
+# only keep the follow up that was furthest out
+x3<-x2 %>% group_by(bcr_patient_barcode) %>% filter(years_til_fu == max(years_til_fu))
+
+```{r}
+# prioritize the last followup date:
+fu48_2$combined<-paste(fu48_2$`fu48-bcr_patient_barcode`,fu48_2$`fu48-form_completion_date`,sep="_") 
+
+fu48_2$combined %>% unique() %>% length()
+
+fu48_2[order(fu48_2$combined, decreasing = FALSE),]
+
+```
+
+Set some sort of reference date that is much earlier than any of the form completion dates, count the number of days elapsed since that date, and take the min() and max() out of any duplicates.
+
+```{r}
+# prioritize the first followup date:
+
+min(fu48_2$`fu48-form_completion_date`)
+```
+
+Set 2012 Jan 01 as the arbitrary reference date:
+
+# only keep the follow up that was furthest out
+x3<-x2 %>% group_by(bcr_patient_barcode) %>% filter(years_til_fu == max(years_til_fu))
+
+```{r}
+# days elapsed since reference date
+
+fu48_2$`fu48-form_completion_date` - as.Date("2012-01-01")
+
+fu48_2$daysinceref<-as.numeric(as.Date(fu48_2$`fu48-form_completion_date`)- as.Date("2012-01-01"), units="days")
+
+fu48_max<-fu48_2 %>% group_by(`fu48-bcr_patient_barcode`) %>% dplyr::filter(daysinceref == max(daysinceref))
+
+fu48_min<-fu48_2 %>% group_by(`fu48-bcr_patient_barcode`) %>% dplyr::filter(daysinceref == min(daysinceref))
+
+```
+
+
+All left join to clinical.BCRtab.all2$clinical_patient_hnsc dataset
+
+```{r}
+leftjoin1<-patient %>% left_join(fu48_max, by=c("patient-bcr_patient_barcode"="fu48-bcr_patient_barcode"))
+
+leftjoin2<-leftjoin1 %>% left_join(radfinal, by=c("patient-bcr_patient_barcode"="rad-bcr_patient_barcode"))
+
+leftjoin3<-leftjoin2 %>% left_join(drugfinal, by=c("patient-bcr_patient_barcode"="drug-bcr_patient_barcode"))
+```
+
+
+```{r}
+write.csv(leftjoin3, file="clinicaltablesmall.csv")
+```
+
+
+
