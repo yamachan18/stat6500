@@ -1,5 +1,5 @@
 ---
-title: "EDA take 2"
+title: "EDA"
 author: "Kyoko Yamaguchi"
 date: "2/28/2022"
 output: pdf_document
@@ -109,7 +109,8 @@ saveRDS(sortedcpg, file="hnsc_cpg1000_sorted.RDS")
 The current matrix of patients vs. CPGs does not contain any missing values. There was missing data in the original matrix of patients vs. CPGs, but the missing data was 1) kicked out if the CPG had greater than 30% missing values, and 2) the missing values for any remaining CPGs were imputed via mean imputation. The code for the mean imputation and filtering is here for reference. The Rmarkdown could not be knitted from the original table because the file size of the original table of patients vs unfiltered 400,000+ CPGs was > 1GB and not possible to share over cloud to the rest of the group. This matrix was further filtered to include only the top 1000 most variably expressed CPGs (using standard deviation). 
 
 ```{r, eval=FALSE}
-# Drop CPGs that have greater than X% NAs in the row (as in, X% or more of patients have "NA" values for these CGs)
+# Drop CPGs that have greater than X% NAs in the row 
+# (as in, X% or more of patients have "NA" values for these CGs)
 mycutoff<-0.3
 cutoffrowna<-mycutoff*ncol(RAW)
 numberofna<-which(rowSums(is.na(RAW))/cutoffrowna > mycutoff)
@@ -168,15 +169,19 @@ interestedincols<-c("fu48-bcr_patient_barcode",
 "fu48-tobacco_smokeless_use_at_dx")
 fu48_2<-fu48[,interestedincols] %>% distinct()
 
-# Calculate days elapsed since reference date of January 1, 2012, which is a date that is earlier than any of the dates that the followup form was completed, yielding a positive number
+# Calculate days elapsed since reference date of January 1, 2012,
+# which is a date that is earlier than any of the dates that the followup form was completed, yielding a positive number
 fu48_2$`fu48-form_completion_date` - as.Date("2012-01-01")
 fu48_2$daysinceref<-as.numeric(as.Date(fu48_2$`fu48-form_completion_date`)- as.Date("2012-01-01"), units="days")
 fu48_max<-fu48_2 %>% group_by(`fu48-bcr_patient_barcode`) %>% dplyr::filter(daysinceref == max(daysinceref))
 
 # left join all tables to to clinical.BCRtab.all2$clinical_patient_hnsc dataset
-leftjoin1<-patient %>% left_join(fu48_max, by=c("patient-bcr_patient_barcode"="fu48-bcr_patient_barcode"))
-leftjoin2<-leftjoin1 %>% left_join(radfinal, by=c("patient-bcr_patient_barcode"="rad-bcr_patient_barcode"))
-leftjoin3<-leftjoin2 %>% left_join(drugfinal, by=c("patient-bcr_patient_barcode"="drug-bcr_patient_barcode"))
+leftjoin1<-patient %>% left_join(fu48_max, 
+       by=c("patient-bcr_patient_barcode"="fu48-bcr_patient_barcode"))
+leftjoin2<-leftjoin1 %>% left_join(radfinal, 
+       by=c("patient-bcr_patient_barcode"="rad-bcr_patient_barcode"))
+leftjoin3<-leftjoin2 %>% left_join(drugfinal, 
+       by=c("patient-bcr_patient_barcode"="drug-bcr_patient_barcode"))
 
 write.csv(leftjoin3, file="clinicaltablesmall.csv")
 ```
@@ -241,4 +246,21 @@ cpgumap<-umap(sortedcpg)
 plot(cpgumap[["layout"]], xlab="UMAP dimension 1", ylab="UMAP dimension 2")
 ```
 
-Although TSNE and UMAP are not clustering algorithm, we can visually see that some patients do cluster together. I have seen that common clustering algorithms like K-means and partioning around medioids (PAM) tends to give clusters that do not agree with what the human brain sees from plots of reduced dimension 1 vs reduced dimension 2.
+Although TSNE and UMAP are not clustering algorithm, we can visually see that some patients do cluster together. I have seen that common clustering algorithms like K-means and partioning around medioids (PAM) tends to give clusters that do not agree with what the human brain sees from plots of reduced dimension 1 vs reduced dimension 2. Some alternative clustering methods that could be successful with data like ours, would be spectral clustering and model-based clustering (mclust) to name a few.
+
+An interesting question would be: would any of these clusters be related to patient survival outcome? Here is a Kaplan-Meier curve showing the outcome data for these set of patients. Depending on what clusters we define, we can create multiple Kaplan-Meier curves corresponding to different clusters of patients and determine if the cluster is a prognostic variable. We can also dig into existing literature to compare how well our clusters defined solely by methylation data, fares as a predictive variable compared to already known prognostic factors like patient age and status of the tumor at time of diagnosis.
+
+```{r, message=FALSE, warning=FALSE}
+library(survival)
+```
+
+
+```{r}
+mysurvdf<-data.frame(event=sortedclin$fu48.vital_status %>% as.factor() %>% as.numeric() -1, #Alive=0,Dead=1
+           time=sortedclin$fu48.death_days_to)
+
+# proportion of missing data in the columns used for survival analysis
+apply(mysurvdf, 2, function(x) sum(is.na(x))/nrow(mysurvdf))
+
+plot(Surv(time=mysurvdf$time , event=mysurvdf$event))
+```
