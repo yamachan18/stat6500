@@ -1,0 +1,126 @@
+---
+title: "EDA - Clinical features"
+author: "Shan Tang"
+date: "2/28/2022"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+require("survival")
+library("survminer")
+library(ggpubr)
+library(tibble)
+library(dplyr)
+
+sortedclin<-readRDS("C:/Users/tang53/Documents/1Course/STAT6500_ML/Project/hnsc_clin_sorted.RDS")
+sortedcpg<-readRDS("C:/Users/tang53/Documents/1Course/STAT6500_ML/Project/hnsc_cpg1000_sorted.RDS")
+```
+
+## Predefined functions
+
+```{r function}
+plot.ggsurv<- function(surv.fit, clin.table) {
+  ggsurv<-ggsurvplot(fit =surv.fit, clin.table,
+           palette = c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"),
+           pval = TRUE, #conf.int = TRUE, 
+           legend=c(0.7,0.85),legend.title = "Patient Group",
+           xlab = "Time/days", 
+           ggtheme = theme_light())
+  
+  ggsurv$plot <- ggsurv$plot + 
+    theme(legend.text = element_text(size = 16, color = "black"),
+          axis.title.x =  element_text(size = 16, color = "black"),
+          axis.title.y =  element_text(size = 16, color = "black"))
+  
+  return(ggsurv)
+}
+
+fit<- survfit(Surv(SurvivalDays, Death) ~ subgroup, sample_infor1)
+surv_object <- Surv(time = sample_infor1$SurvivalDays, event = sample_infor1$Death)
+fit.coxph <- coxph(surv_object ~ subgroup, data = sample_infor1)
+
+```
+
+## Feature checked:
+```{r}
+features<-c("patient.gender","patient.birth_days_to", "patient.tumor_status","patient.tumor_grade","patient.lymphovascular_invasion","patient.perineural_invasion",
+            "patient.vital_status", "patient.death_days_to", "patient.last_contact_days_to")
+clin_sub<-sortedclin[,c("patient.bcr_patient_barcode", features)] %>% 
+  mutate(patient.age_year= round(-as.numeric(patient.birth_days_to)/365, 2),
+         patient.event=sortedclin$patient.vital_status %>% as.factor() %>% as.numeric() -1,  #Alive=0,Dead=1
+         patient.survDays=rowSums(sortedclin[, c("patient.last_contact_days_to","patient.death_days_to")], na.rm=T))
+colnames(clin_sub)<-unlist(lapply(strsplit(colnames(clin_sub), '.', fixed = TRUE), '[', 2))
+#write.csv(clin_sub,"./clin_sub.csv", row.names = F)
+
+#pairs(clin_sub[,c("gender" ,"tumor_status", "tumor_grade","lymphovascular_invasion", "perineural_invasion", "age_year","event", "survDays")])
+```
+
+#### patient.gender:
+```{r}
+table(clin_sub$gender)
+
+fit_gender<- survfit(Surv(survDays, event) ~ gender, clin_sub)
+plot.ggsurv(fit_gender,clin_sub)
+```
+
+#### patient.birth_days_to:
+```{r}
+summary(clin_sub$age_year)
+clin_sub <- clin_sub %>% 
+    mutate(age_group = ifelse(age_year>=61.14, "Above_median","Below_median"),
+           age_group1 = case_when(age_year <=53.35 ~ "1st quantile",
+                                  age_year >53.35 & age_year <=61.14 ~ "2nd quantile",
+                                  age_year >61.14 & age_year<=69.17 ~ "3rd quantile",
+                                  age_year >= 69.17 ~ "4th quantile"))
+
+fit_age<- survfit(Surv(survDays, event) ~ age_group1, clin_sub)
+plot.ggsurv(fit_age,clin_sub)
+```
+
+#### patient.race
+```{r}
+table(clin_sub$race)
+
+fit_race<- survfit(Surv(survDays, event) ~ race, clin_sub)
+plot.ggsurv(fit_race,clin_sub)
+```
+
+#### patient.tumor_status:
+```{r}
+table(clin_sub$tumor_status)
+
+fit_tumor_status<- survfit(Surv(survDays, event) ~ tumor_status, clin_sub)
+plot.ggsurv(fit_tumor_status,clin_sub)
+```
+
+#### patient-tumor_grade:
+```{r}
+table(clin_sub$tumor_grade)
+
+fit_tumor_grade<- survfit(Surv(survDays, event) ~ tumor_grade, clin_sub)
+plot.ggsurv(fit_tumor_grade,clin_sub)
+```
+
+
+#### patient.perineural_invasion
+```{r}
+table(clin_sub$perineural_invasion)
+
+fit<- survfit(Surv(survDays, event) ~ perineural_invasion, clin_sub)
+plot.ggsurv(fit,clin_sub)
+```
+
+```{r}
+clin_sub1<-clin_sub %>% 
+  mutate(lymphovascular_invasion1 = case_when(lymphovascular_invasion == "YES" ~ 1,
+                                              lymphovascular_invasion == "NO" ~ 0),
+         perineural_invasion1 = case_when(perineural_invasion == "YES" ~ 1,
+                                          perineural_invasion == "NO" ~ 0))
+cor(clin_sub1$lymphovascular_invasion1, clin_sub1$perineural_invasion1, use ="complete.obs")
+```
+
+
+
+
+
