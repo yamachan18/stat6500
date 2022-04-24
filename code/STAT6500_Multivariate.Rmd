@@ -1,0 +1,76 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(MASS)
+library(dplyr)
+library(tidyr)
+library(GGally)
+
+clusterfinal<-readRDS("C:/Users/tang53/Documents/1Course/STAT6500_ML/Project/data/clustersfinal.RDS")
+clin_sub<-read.csv("C:/Users/tang53/Documents/1Course/STAT6500_ML/Project/data/clin_sub.csv", header = T)
+
+clin_sub$methygroup<-as.factor(clusterfinal)
+```
+
+## Variable selection
+Based on single-parameter survival analysis, choose as predict variables.
+```{r, warning=FALSE}
+features<-c("patient.gender","patient.age_year", "patient.tumor_status","patient.tumor_grade",
+            "patient.event", "patient.survDays", "methygroup")
+clin_dat<-clin_sub[,features]
+colnames(clin_dat)<-unlist(lapply(strsplit(colnames(clin_dat), '.', fixed = TRUE), '[', 2))  ## remove 'patien.xxx' in the colnames
+colnames(clin_dat)[7]<-"MethyGroup"
+
+### Age group
+firstq<-summary(clin_dat$age_year)[2]
+secondq<-summary(clin_dat$age_year)[4]
+thirdq<-summary(clin_dat$age_year)[5]
+
+clin_dat<-clin_dat %>%
+    mutate(age_group = ifelse(age_year>=secondq, "Above_median","Below_median"),
+           age_group1 = case_when(age_year <=firstq ~ "1st quantile",
+                                  age_year >firstq & age_year <=secondq ~ "2nd quantile",
+                                  age_year >secondq & age_year<=thirdq ~ "3rd quantile",
+                                  age_year > thirdq ~ "4th quantile"))
+
+ggpairs(clin_dat[, c("MethyGroup", "gender", "tumor_status","tumor_grade","age_group1")])
+
+##Checnk correlation
+clin_dat1<-clin_dat[,c("MethyGroup", "gender", "tumor_status","tumor_grade","age_group1")]
+mapply(function(x, y) chisq.test(x, y)$p.value, clin_dat1[, -1], MoreArgs=list(clin_dat1[,1]))
+mapply(function(x, y) chisq.test(x, y)$p.value, clin_dat1[, -2], MoreArgs=list(clin_dat1[,2]))
+mapply(function(x, y) chisq.test(x, y)$p.value, clin_dat1[, -3], MoreArgs=list(clin_dat1[,3]))
+mapply(function(x, y) chisq.test(x, y)$p.value, clin_dat1[, -4], MoreArgs=list(clin_dat1[,4]))
+mapply(function(x, y) chisq.test(x, y)$p.value, clin_dat1[, -5], MoreArgs=list(clin_dat1[,5]))
+```
+
+
+## training and test set
+We randomly selected half of the observations as training data set, and the rest as our test data set.
+```{r }
+# randomly select half of the observations for training 
+set.seed(123)
+train = sample(1:nrow(clin_dat),nrow(clin_dat)/2)
+test = (1:nrow(clin_dat))[-train]
+clin_dat_train = clin_dat[train,]
+clin_dat_test = clin_dat[test,]
+```
+
+
+## LDA
+Note: QDA is also tested, but the model fitting is failed, which might be caused by collinearity. 
+```{r LDA, warning=FALSE}
+##LDA model
+lda.fit = lda(event ~ gender +age_group1 + tumor_status + tumor_grade + MethyGroup, data = clin_dat_train)
+lda.fit
+
+##prediction for test data
+lda.pred = predict(lda.fit, clin_dat_test)
+table(lda.pred$class, clin_dat_test$event)
+## error rate
+mean(lda.pred$class != clin_dat_test$event, na.rm=TRUE)
+```
+

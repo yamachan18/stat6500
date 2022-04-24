@@ -1,0 +1,107 @@
+---
+title: "Forrest Plot"
+author: "Shan Tang"
+date: "2/28/2022"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+
+sortedcpg<-readRDS("C:/Users/tang53/Documents/1Course/STAT6500_ML/Project/data/hnsc_cpg1000_sorted.RDS")
+sortedclin<-readRDS("C:/Users/tang53/Documents/1Course/STAT6500_ML/Project/data/hnsc_clin_sorted.RDS")
+clusterfinal<-readRDS("C:/Users/tang53/Documents/1Course/STAT6500_ML/Project/data/clustersfinal.RDS")
+clusterbig<-readRDS("C:/Users/tang53/Documents/1Course/STAT6500_ML/Project/data/clustersbig.RDS")
+clin_sub<-read.csv("C:/Users/tang53/Documents/1Course/STAT6500_ML/Project/data/clin_sub.csv", header = T)
+```
+
+## Forest plot
+```{r}
+require("survival")
+library("survminer")
+library(ggpubr)
+
+plot.ggsurv<- function(surv.fit, clin.table) {
+  ggsurv<-ggsurvplot(fit =surv.fit, clin.table,
+           palette = c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"),
+           pval = TRUE, #conf.int = TRUE, 
+           legend=c(0.7,0.85),legend.title = "Patient Group",
+           xlab = "Time/days", 
+           ggtheme = theme_light())
+  
+  ggsurv$plot <- ggsurv$plot + 
+    theme(legend.text = element_text(size = 16, color = "black"),
+          axis.title.x =  element_text(size = 16, color = "black"),
+          axis.title.y =  element_text(size = 16, color = "black"))
+  
+  return(ggsurv)
+}
+```
+
+#### for pam-3
+```{r}
+clin_sub$clustersfinal<-as.factor(clusterfinal)
+fit_clusters<- survfit(Surv(patient.survDays, patient.event) ~ clustersfinal, clin_sub)
+surv_object <- Surv(time = clin_sub$patient.survDays, event = clin_sub$patient.event)
+fit.coxph <- coxph(surv_object ~ clustersfinal, data = clin_sub)
+
+ggforest(fit.coxph, data = clin_sub)
+plot.ggsurv(fit_clusters,clin_sub)
+```
+
+#### for multiple subgroup
+```{r}
+library(gridExtra)
+
+clin_sub1<-clin_sub
+par(mfrow=c(5,3))
+forest_p<-list()
+for (i in 1:ncol(clusterbig)) {
+  clin_sub1$cluster<-as.factor(clusterbig[,i])
+  colnames(clin_sub1)[ncol(clin_sub1)] <- colnames(clusterbig)[i]
+  #fit_clusters<- survfit(Surv(patient.survDays, patient.event) ~ colnames(clin_sub1)[ncol(clin_sub1)], clin_sub1)
+  surv_object <- Surv(time = clin_sub1$patient.survDays, event = clin_sub1$patient.event)
+  fit.coxph <- coxph(as.formula(paste("surv_object", "~", colnames(clin_sub1)[ncol(clin_sub1)])), data = clin_sub1)
+  
+  forest_p[[i]]<-ggforest(fit.coxph, data = clin_sub1)
+}
+
+forest_p[[1]]
+forest_p[[2]]
+forest_p[[3]]
+forest_p[[4]]
+forest_p[[5]]
+forest_p[[6]]
+forest_p[[7]]
+forest_p[[8]]
+forest_p[[9]]
+forest_p[[10]]
+forest_p[[11]]
+forest_p[[12]]
+forest_p[[13]]
+forest_p[[14]]
+forest_p[[15]]
+```
+
+
+
+## Clinical data sort
+```{r pressure, include=F}
+numlevels<-apply(sortedclin, 2, function(x) length(unique(x)))
+# sort(numlevels)
+names(numlevels)[which(numlevels<=6)]
+
+interesting<-names(numlevels)[which(numlevels<=6)]
+interestingimportant<-c(interesting, "patient.birth_days_to", "patient.death_days_to")
+subsetclin<-sortedclin[,interestingimportant]
+
+clin_sub<-subsetclin %>% 
+  mutate(patient.age_year= round(-as.numeric(patient.birth_days_to)/365, 2),
+         patient.event=sortedclin$patient.vital_status %>% as.factor() %>% as.numeric() -1,  #Alive=0,Dead=1
+         patient.survDays=rowSums(sortedclin[, 
+                        c("patient.last_contact_days_to","patient.death_days_to")], na.rm=T))
+# write.csv(clin_sub,"./clin_sub.csv", row.names = F)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
