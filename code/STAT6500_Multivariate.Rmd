@@ -1,5 +1,6 @@
 ---
 title: "Untitled"
+author: "Shan Tang"
 output: html_document
 ---
 
@@ -73,4 +74,14 @@ table(lda.pred$class, clin_dat_test$event)
 ## error rate
 mean(lda.pred$class != clin_dat_test$event, na.rm=TRUE)
 ```
+## multivariate survival model
+```{r}
+require("survival")
+library("survminer")
+library(ggpubr)
 
+surv_object <- Surv(time =clin_dat$survDays, event = clin_dat$event)
+fit.coxph <- coxph(surv_object ~ gender +age_group1 + tumor_status + tumor_grade + MethyGroup, data = clin_dat)
+
+summary(fit.coxph)
+```
