@@ -354,7 +354,7 @@ mybic
 plot(mybic)
 ```
 
-```{r}
+```{r, include=FALSE, eval=FALSE}
 mymodelNames<-c("EII", "VII", "EEI", "VEI", "EVI", "VVI")
 matBIC<-as.data.frame(matrix(mybic, ncol=length(mymodelNames), nrow=length(myG)))
 colnames(matBIC)<-mymodelNames
@@ -370,9 +370,7 @@ print(w)
 myrow[i]<-rownames(matBIC)[w[1,1]]
 mycol[i]<-colnames(matBIC)[w[1,2]]
 }
-```
 
-```{r}
 mymclusters<-matrix(NA, nrow=nrow(sortedcpg), ncol=top)
 for (i in 1:top){
   resmclust<-Mclust(data=as.matrix(myjacc), G=myrow[i], modelNames = mycol[i])
@@ -386,12 +384,10 @@ head(mymclusters)
 ```
 
 
-
 ## Combining all the clusters tables into 1
 
 ```{r}
-clustersbig<-cbind(mykmeansclusters, mypamclusters, myspeccclusters, 
-                   mymclusters) #just plotting 1
+clustersbig<-cbind(mykmeansclusters, mypamclusters, myspeccclusters) #just plotting 1
 rownames(mykmeansclusters)<-rownames(sortedcpg)
 ```
 
@@ -431,6 +427,12 @@ clustersfinal<-clustersbig[,"PAM_3"]
 ```{r, eval=FALSE}
 saveRDS(clustersfinal, "clustersfinal.RDS")
 saveRDS(clustersbig,"clustersbig.RDS")
+```
+
+### Differential expression of CPGs according to cluster
+
+```{r}
+
 ```
 
 
@@ -476,12 +478,12 @@ library(dummies)
 clinbinary<-dummy.data.frame(subsetclin)
 ```
 
- 
 ```{r, out.width="50%"}
 # only plot columns that have a substantial amount of information
-w<-which(colSums(clinbinary)>=100) #528/3 = 176
-clinbinlist <- colnames(clinbinary)[w]
-clinbinary2 <-clinbinary[,w]
+# w<-which(colSums(clinbinary)>=100) #528/3 = 176
+# clinbinlist <- colnames(clinbinary)[w]
+# clinbinary2 <-clinbinary[,w]
+clinbinary2<-clinbinary
 
 par(pty="s")
 for (i in 1:ncol(clinbinary2)){
@@ -504,6 +506,12 @@ library(survminer)
 library(ggpubr)
 library(tibble)
 ```
+
+
+
+
+
+### How do these CPGs relate to survival?
 
 
 ### Kaplan-Meier curves for some clinical variables
